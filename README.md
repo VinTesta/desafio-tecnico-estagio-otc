@@ -1,98 +1,406 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# OTC Swap Backend - Desafio Técnico PODS
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+> Backend de uma aplicação de OTC swaps para troca de tokens ERC-20 sem smart contract próprio, utilizando transferências diretas on-chain e lógica no servidor.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+**Autor:** Vinicius Testa Passos  
+**GitHub:** [VinTesta](https://github.com/VinTesta)  
+**Ocupação:** Estudante de Ciência da Computação @ Inteli  
 
-## Description
+---
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## Índice
 
-## Project setup
+- [Visão Geral](#-visão-geral)
+- [Tecnologias e Decisões de Design](#-tecnologias-e-decisões-de-design)
+- [Arquitetura da Solução](#-arquitetura-da-solução)
+- [Rede e Tokens Utilizados](#-rede-e-tokens-utilizados)
+- [Estratégia de Precificação](#-estratégia-de-precificação)
+- [Instalação e Configuração](#-instalação-e-configuração)
+- [Executando o Projeto](#-executando-o-projeto)
+- [Documentação da API](#-documentação-da-api)
+- [Validação de Transações](#-validação-de-transações)
+- [Testes Realizados](#-testes-realizados)
+- [Dificuldades e Soluções](#-dificuldades-e-soluções)
+- [Referências](#-referências)
 
-```bash
-$ npm install
+---
+
+## Visão Geral
+
+Este projeto implementa um **bot de OTC (Over-The-Counter)** que:
+
+1. **Calcula cotações em tempo real** utilizando o SDK da Uniswap V3
+2. **Gera calldata** para o cliente assinar e enviar a transferência on-chain
+3. **Valida transações** consultando a blockchain após o envio
+4. **Efetua o pagamento** da contraparte do swap automaticamente
+
+### Fluxo da Aplicação
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           FLUXO OTC SWAP                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  1. QUOTE                    2. PAYMENT                  3. FULFILL         │
+│  ───────                     ─────────                   ─────────          │
+│                                                                             │
+│  ┌─────────┐                 ┌─────────┐                 ┌─────────┐        │
+│  │ Cliente │ ──GET /quote──► │ Backend │                 │ Backend │        │
+│  └─────────┘                 └────┬────┘                 └────┬────┘        │
+│       │                           │                           │             │
+│       │                     ┌─────▼─────┐                     │             │
+│       │                     │  Uniswap  │                     │             │
+│       │                     │  SDK V3   │                     │             │
+│       │                     └─────┬─────┘                     │             │
+│       │                           │                           │             │
+│       │◄── Retorna cotação ───────┘                           │             │
+│       │    + calldata                                         │             │
+│       │                                                       │             │
+│       │                     ┌───────────┐                     │             │
+│       │ ── Assina e envia ─►│ Blockchain│                     │             │
+│       │    transferência    │ (Sepolia) │                     │             │
+│       │                     └─────┬─────┘                     │             │
+│       │                           │                           │             │
+│       │◄──── txHash ──────────────┘                           │             │
+│       │                                                       │             │
+│       │ ─────────── POST /fulfill {quoteId, txHash} ─────────►│             │
+│       │                                                       │             │
+│       │                                               ┌───────▼───────┐     │
+│       │                                               │   Validação   │     │
+│       │                                               │  - Destinatário│    │
+│       │                                               │  - Valor      │     │
+│       │                                               │  - Token      │     │
+│       │                                               └───────┬───────┘     │
+│       │                                                       │             │
+│       │                                               ┌───────▼───────┐     │
+│       │                                               │   Pagamento   │     │
+│       │                                               │   Automático  │     │
+│       │                                               └───────┬───────┘     │
+│       │                                                       │             │
+│       │◄──────────────── Confirmação + payTxHash ─────────────┘             │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-## Compile and run the project
+---
 
-```bash
-# development
-$ npm run start
+## 🛠 Tecnologias e Decisões de Design
 
-# watch mode
-$ npm run start:dev
+| Tecnologia | Justificativa |
+|------------|---------------|
+| **NestJS** | Framework robusto com arquitetura modular, injeção de dependência nativa e excelente suporte a TypeScript |
+| **Prisma ORM** | Type-safe, migrations automáticas e excelente DX para PostgreSQL |
+| **Ethers.js v5** | Biblioteca madura e bem documentada para interação com EVM |
+| **Uniswap V3 SDK** | Acesso a cotações de mercado em tempo real com alta liquidez |
+| **PostgreSQL** | Banco relacional confiável para persistência de cotações |
+| **Docker Compose** | Facilita setup do ambiente de desenvolvimento |
 
-# production mode
-$ npm run start:prod
+### Estrutura do Projeto
+
+```
+src/
+├── main.ts                    # Bootstrap da aplicação
+├── app.module.ts              # Módulo raiz
+├── prisma/                    # Configuração do Prisma
+│   ├── prisma.module.ts
+│   └── prisma.service.ts
+├── quote/                     # Módulo principal de cotações
+│   ├── quote.controller.ts    # Endpoints da API
+│   ├── quote.service.ts       # Lógica de negócio
+│   ├── quote.module.ts        # Configuração do módulo
+│   ├── constants/
+│   │   └── config.ts          # Endereços de contratos e tokens
+│   ├── dto/                   # Data Transfer Objects
+│   │   ├── getQuoteController.dto.ts
+│   │   ├── fulfillQuote.dto.ts
+│   │   └── quoteResponse.dto.ts
+│   ├── model/
+│   │   └── currency-quote-config.ts
+│   └── providers/
+│       └── json-rpc.ts        # Provider RPC
+└── common/
+    ├── conversion/
+    │   └── amountConvertions.ts
+    └── enum/
+        └── currency.ts        # Tokens suportados
 ```
 
-## Run tests
+---
 
-```bash
-# unit tests
-$ npm run test
+## Rede e Tokens Utilizados
 
-# e2e tests
-$ npm run test:e2e
+### Rede
+- **Testnet:** Sepolia (chainId: 11155111)
+- **Mainnet (para cotações):** Ethereum Mainnet
 
-# test coverage
-$ npm run test:cov
+### Tokens Suportados
+
+| Token | Endereço (Sepolia) | Decimals |
+|-------|-------------------|----------|
+| WETH | `0xdd13E55209Fd76AfE204dBda4007C227904f0A81` | 18 |
+| USDC | `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238` | 6 |
+| WBTC | `0x171e51AE433924B1A8c9C970E137BE3a484005eF` | 8 |
+
+> **Nota:** O WBTC na Sepolia foi deployado manualmente como um ERC-20 para fins de teste, já que não foi encontrado um equivalente oficial.
+
+### Contratos Uniswap (Mainnet - para cotações)
+
+| Contrato | Endereço |
+|----------|----------|
+| Pool Factory | `0x1F98431c8aD98523631AE4a59f267346ea31F984` |
+| Quoter | `0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6` |
+
+### Endereço da Mesa OTC (Swap Account)
+```
+0x4899561771600ba4a00430f5b0d5aef3cf82df36
 ```
 
-## Deployment
+---
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+## Estratégia de Precificação
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+A precificação utiliza **cotações em tempo real da Uniswap V3** na Ethereum Mainnet, garantindo preços de mercado.
+
+```typescript
+// Fluxo de precificação
+const quotedAmountOut = await quoterContract.callStatic.quoteExactInputSingle(
+  tokenIn.address,      // Token de entrada
+  tokenOut.address,     // Token de saída
+  poolFee,              // 3000 (0.3%)
+  amountIn,             // Quantidade de entrada
+  0                     // sqrtPriceLimitX96
+);
+```
+---
+
+## Instalação e Configuração
+
+### Pré-requisitos
+
+- Node.js >= 18.x
+- npm ou yarn
+- Docker e Docker Compose (para o banco de dados)
+
+### 1. Clone o repositório
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+git clone https://github.com/VinTesta/desafio-tecnico-estagio-otc.git
+cd desafio-tecnico-estagio-otc
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+### 2. Instale as dependências
 
-## Resources
+```bash
+npm install
+```
 
-Check out a few resources that may come in handy when working with NestJS:
+### 3. Configure as variáveis de ambiente
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+```bash
+cp .env.example .env
+```
 
-## Support
+Edite o arquivo `.env` com suas configurações:
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+```env
+# Banco de dados
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=sua_senha_segura
+POSTGRES_DB=otc_swap
+POSTGRES_PORT=5432
+DATABASE_URL=postgresql://postgres:sua_senha_segura@localhost:5432/otc_swap
 
-## Stay in touch
+# RPC URLs (obtenha em Infura, Alchemy, etc.)
+MAINNET_RPC_URL=https://mainnet.infura.io/v3/SEU_PROJECT_ID
+SEPOLIA_RPC_URL=https://sepolia.infura.io/v3/SEU_PROJECT_ID
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+# Chave privada da carteira de swap (SEM o prefixo 0x)
+SWAP_ACCOUNT_PRIVATE_KEY=sua_chave_privada_aqui
+```
 
-## License
+### 4. Inicie o banco de dados
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+```bash
+docker-compose up -d
+```
+
+### 5. Execute as migrations
+
+```bash
+npx prisma migrate deploy
+```
+
+---
+
+## Executando o Projeto
+
+### Desenvolvimento
+
+```bash
+npm run start:dev
+```
+
+### Produção
+
+```bash
+npm run build
+npm run start:prod
+```
+
+A API estará disponível em `http://localhost:3000`
+
+---
+
+## Documentação da API
+
+### GET `/quote/:payToken/:receiveToken/:payAmount`
+
+Calcula uma cotação para swap de tokens.
+
+**Parâmetros:**
+
+| Parâmetro | Tipo | Descrição | Valores aceitos |
+|-----------|------|-----------|-----------------|
+| `payToken` | string | Token a ser enviado | `ETH`, `USDC`, `WBTC` |
+| `receiveToken` | string | Token a ser recebido | `ETH`, `USDC`, `WBTC` |
+| `payAmount` | number | Quantidade a enviar | Número positivo |
+
+**Exemplo de requisição:**
+
+```bash
+curl -X GET "http://localhost:3000/quote/ETH/USDC/0.1"
+```
+
+**Exemplo de resposta (200 OK):**
+
+```json
+{
+  "quoteId": "cm3zk5j7h0001qw0g8k5j7h0z",
+  "payToken": "ETH",
+  "payAmount": "0.1",
+  "receiveToken": "USDC",
+  "receiveAmount": "350.123456",
+  "payment": {
+    "to": "0x4899561771600ba4a00430f5b0d5aef3cf82df36",
+    "tokenAddress": "0xdd13E55209Fd76AfE204dBda4007C227904f0A81",
+    "calldata": "0x",
+    "chainId": 11155111
+  }
+}
+```
+
+> **Nota:** Para pagamentos em ETH/WETH, o `calldata` retorna `"0x"` pois é uma transferência nativa. Para tokens ERC-20, retorna o calldata da função `transfer()`.
+
+---
+
+### POST `/quote/fulfill`
+
+Processa o fulfillment de uma cotação após o pagamento on-chain.
+
+**Body:**
+
+```json
+{
+  "quoteId": "cm3zk5j7h0001qw0g8k5j7h0z",
+  "txHash": "0xd9cb9a21bfc07f858554fbeb70e5ff683a0f78e845cd737507d322cc0de6c287"
+}
+```
+
+**Exemplo de requisição:**
+
+```bash
+curl -X POST "http://localhost:3000/quote/fulfill" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "quoteId": "cm3zk5j7h0001qw0g8k5j7h0z",
+    "txHash": "0xd9cb9a21bfc07f858554fbeb70e5ff683a0f78e845cd737507d322cc0de6c287"
+  }'
+```
+
+**Exemplo de resposta (200 OK):**
+
+```json
+{
+  "status": "fulfilled",
+  "quoteId": "cm3zk5j7h0001qw0g8k5j7h0z",
+  "payTxHash": "0xf86a649c8a4cb1994218895b6281c5da0b8a467f45291d2312740f649e956aef",
+  "payout": {
+    "token": "USDC",
+    "amount": "350.123456",
+    "status": "sent"
+  }
+}
+```
+
+**Possíveis erros:**
+
+| Código | Mensagem | Causa |
+|--------|----------|-------|
+| 404 | Quote not found | quoteId inválido ou já processado |
+| 400 | Transaction does not exist | txHash não encontrado na blockchain |
+| 400 | Transaction pending | Transação ainda não confirmada |
+| 400 | Transaction failed | Transação revertida |
+| 400 | Destination mismatch | Transferência para endereço incorreto |
+| 400 | Amount mismatch | Valor transferido menor que o esperado |
+
+---
+
+### GET `/quote`
+
+Lista todas as cotações registradas.
+
+```bash
+curl -X GET "http://localhost:3000/quote"
+```
+---
+
+## Testes Realizados
+
+Três swaps foram executados com sucesso na testnet Sepolia:
+
+### ETH → USDC
+- **TxHash:** [`0xd9cb9a21bfc07f858554fbeb70e5ff683a0f78e845cd737507d322cc0de6c287`](https://sepolia.etherscan.io/tx/0xd9cb9a21bfc07f858554fbeb70e5ff683a0f78e845cd737507d322cc0de6c287)
+
+### USDC → ETH
+- **TxHash:** [`0xf86a649c8a4cb1994218895b6281c5da0b8a467f45291d2312740f649e956aef`](https://sepolia.etherscan.io/tx/0xf86a649c8a4cb1994218895b6281c5da0b8a467f45291d2312740f649e956aef)
+
+### WBTC → ETH
+- **TxHash:** [`0x1b7271c4ea7109c190e1866d3d75a80d3b28c928fe523f5206b330685e703270`](https://sepolia.etherscan.io/tx/0x1b7271c4ea7109c190e1866d3d75a80d3b28c928fe523f5206b330685e703270)
+
+---
+
+## Dificuldades e Soluções
+
+### 1. Diferença entre Mainnet e Testnet
+**Problema:** O SDK da Uniswap consulta pools na Mainnet, mas as transações ocorrem na Sepolia.
+
+**Solução:** Criado um mapeamento (`SepoliaTokensAddresses`) para traduzir os endereços dos tokens entre as redes, permitindo usar cotações reais da Mainnet enquanto opera na testnet.
+
+### 2. Ausência de WBTC na Sepolia
+**Problema:** Não existe um token WBTC oficial na Sepolia.
+
+**Solução:** Foi realizado o deploy de um novo contrato ERC-20 para representar o WBTC na testnet, permitindo testar o fluxo completo.
+
+### 3. Validação de Transferências ERC-20
+**Problema:** Diferentemente de ETH, transferências ERC-20 não aparecem no campo `value` da transação.
+
+**Solução:** Implementada decodificação dos logs de evento `Transfer(address,address,uint256)` para extrair destinatário e valor.
+
+---
+
+## Referências
+
+- [Uniswap V3 SDK - Quoting Guide](https://docs.uniswap.org/sdk/v3/guides/swaps/quoting)
+- [Fetching USDC/WETH Quote from Uniswap V3](https://medium.com/@jac475/part-1-fetching-a-usdc-weth-quote-from-uniswap-v3-2d8613223c88)
+- [Uniswap SDK Examples](https://github.com/Uniswap/examples/tree/main/v3-sdk/quoting)
+- [NestJS Documentation](https://docs.nestjs.com/)
+- [Ethers.js v5 Documentation](https://docs.ethers.org/v5/)
+- [Prisma Documentation](https://www.prisma.io/docs)
+
+---
+
+## Licença
+
+Este projeto foi desenvolvido como parte de um desafio técnico para a empresa PODS.
+
+Muito obrigado a todos pela oportunidade e atenção <3
