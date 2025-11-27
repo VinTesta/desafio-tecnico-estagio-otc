@@ -137,7 +137,6 @@ export class QuoteService {
     token1: string
     fee: number
   }> {
-    console.log(quoteConfig)
     const currentPoolAddress = computePoolAddress({
       factoryAddress: POOL_FACTORY_CONTRACT_ADDRESS,
       tokenA: quoteConfig.tokens.in,
@@ -196,7 +195,7 @@ export class QuoteService {
     
     if (isEthPayment) {
       if (tx.to?.toLowerCase() !== SWAP_ACCOUNT_ADDRESS.toLowerCase()) {
-        throw new BadRequestException(`Destinho da transação não corresponde ao endereço esperado`);
+        throw new BadRequestException(`Destino da transação não corresponde ao endereço esperado`);
       }
       
       const expectedAmount = ethers.utils.parseEther(quote.payAmount);
@@ -239,7 +238,6 @@ export class QuoteService {
     try {
       const sepoliaWallet = this.wallet.connect(sepoliaProvider);
       const receiveTokenAddress = SepoliaTokensAddresses[quote.receiveToken.symbol];
-      console.log('receiveTokenAddress', receiveTokenAddress);
       const receiveAmount = quote.receiveAmount;
       
       const payerAddress = tx.from;
@@ -267,10 +265,10 @@ export class QuoteService {
         payTxHash = payoutTx.hash;
       }
 
-      // await this.prisma.quote.update({
-      //   where: { id: params.quoteId },
-      //   data: { status: 'FULFILLED' },
-      // });
+      await this.prisma.quote.update({
+        where: { id: params.quoteId },
+        data: { status: 'FULFILLED' },
+      });
     } catch (error) {
       throw new BadRequestException(`Falha ao executar pagamento: ${error.message}`);
     }
