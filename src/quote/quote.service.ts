@@ -9,6 +9,7 @@ import { ChainId, Token } from '@uniswap/sdk-core';
 import GetQuoteControllerDto from './dto/getQuoteController.dto';
 import { QuoteConfig } from './model/currency-quote-config';
 import { QuoteResponseDto } from './dto/quoteResponse.dto';
+import { PrismaService } from 'src/prisma/prisma.service';
 
 @Injectable()
 export class QuoteService {
@@ -16,6 +17,7 @@ export class QuoteService {
   constructor(
     @Inject('Provider') private readonly provider: ethers.providers.Provider,
     @Inject('QuoterContract') private readonly quoterContract: ethers.Contract,
+    private readonly prisma: PrismaService,
   ) {}
   
   async getQuote(params: GetQuoteControllerDto): Promise<QuoteResponseDto> {
@@ -46,19 +48,58 @@ export class QuoteService {
         ).toString(),
         0
     ));
-    console.log(this.toPlainString(quotedAmountOut))
+
     const bn = BigNumber.from(this.toPlainString(quotedAmountOut));
 
     const amount = (quotedAmountOut / (10 ** quoteConfig.tokens.out.decimals)).toString()
 
     const funcInterface = new ethers.utils.Interface(transferAbi)
-    const calldata = funcInterface.encodeFunctionData("transfer", [
-      SWAP_ACCOUNT_ADDRESS,
-      quotedAmountOut
-    ]);
+    let calldata = "0x";
+    if (inputToken.symbol != "WETH") {
+      calldata = funcInterface.encodeFunctionData("transfer", [
+        SWAP_ACCOUNT_ADDRESS,
+        ethers.utils.parseUnits(params.payAmount.toString())
+      ]);
+    }
+
+    // Buscar ou criar as currencies no banco
+    const payTokenAddress = SepoliaTokensAddresses[quoteConfig.tokens.in.symbol || ''];
+    const receiveTokenAddress = SepoliaTokensAddresses[quoteConfig.tokens.out.symbol || ''];
+
+    const payCurrency = await this.prisma.currency.upsert({
+      where: { symbol: params.payToken },
+      update: {},
+      create: {
+        symbol: params.payToken,
+        chainId: CHAIN_ID,
+        tokenAddress: payTokenAddress,
+      },
+    });
+
+    const receiveCurrency = await this.prisma.currency.upsert({
+      where: { symbol: params.receiveToken },
+      update: {},
+      create: {
+        symbol: params.receiveToken,
+        chainId: CHAIN_ID,
+        tokenAddress: receiveTokenAddress,
+      },
+    });
+
+    // Salvar a cotação no banco
+    const savedQuote = await this.prisma.quote.create({
+      data: {
+        payTokenId: payCurrency.id,
+        payTo: SWAP_ACCOUNT_ADDRESS,
+        payAmount: params.payAmount.toString(),
+        receiveTokenId: receiveCurrency.id,
+        receiveAmount: amount,
+        paymentCalldata: calldata,
+      },
+    });
 
     return {
-      quoteId: '1',
+      quoteId: savedQuote.id,
       payToken: params.payToken,
       payAmount: params.payAmount.toString(),
       receiveToken: params.receiveToken,
@@ -70,6 +111,15 @@ export class QuoteService {
         chainId: CHAIN_ID, 
       }
     };
+  }
+
+  async getQuotesList() {
+    return this.prisma.quote.findMany({
+      include: {
+        payToken: true,
+        receiveToken: true,
+      },
+    });
   }
 
   toPlainString(num) {

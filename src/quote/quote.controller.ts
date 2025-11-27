@@ -14,4 +14,9 @@ export class QuoteController {
   ): Promise<QuoteResponseDto> {
     return this.quoteService.getQuote(params);
   }
+
+  @Get('/')
+  async getQuotesList() {
+    return await this.quoteService.getQuotesList();
+  }
 }
