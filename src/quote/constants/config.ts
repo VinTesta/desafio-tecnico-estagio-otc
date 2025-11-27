@@ -44,7 +44,7 @@ export const TOKENS_MAP: { [key: string]: Token } = {
 export const SepoliaTokensAddresses: { [key: string]: string } = {
   'WETH': '0xdd13E55209Fd76AfE204dBda4007C227904f0A81', // WETH Sepolia
   'USDC': '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238', // USDC Sepolia
-  'WBTC': '0x171e51AE433924B1A8c9C970E137BE3a484005eF', // WBTC Sepolia
+  'WBTC': '0x087c5ad514D1784a21721656847C9A2c12C3e6DE', // WBTC Sepolia
 }
 
 export const CHAIN_ID = ChainId.SEPOLIA
