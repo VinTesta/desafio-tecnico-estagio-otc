@@ -3,6 +3,7 @@ import { QuoteService } from './quote.service';
 import GetQuoteControllerDto from './dto/getQuoteController.dto';
 import { ValidationPipe } from 'src/classValidator/validation.pipe';
 import { QuoteResponseDto } from './dto/quoteResponse.dto';
+import { FulfillQuoteDto, FulfillResponseDto } from './dto/fulfillQuote.dto';
 
 @Controller('quote')
 export class QuoteController {
@@ -18,5 +19,12 @@ export class QuoteController {
   @Get('/')
   async getQuotesList() {
     return await this.quoteService.getQuotesList();
+  }
+
+  @Post('/fulfill')
+  async fulfillQuote(
+    @Body(new ValidationPipe({ transform: true })) body: FulfillQuoteDto
+  ): Promise<FulfillResponseDto> {
+    return this.quoteService.fulfillQuote(body);
   }
 }

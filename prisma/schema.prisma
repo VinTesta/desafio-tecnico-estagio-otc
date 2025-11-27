@@ -25,6 +25,7 @@ model Quote {
   receiveAmount   String
   paymentCalldata String
   createdAt       DateTime @default(now())
+  status          String   @default("PENDING")
 }
 
 model Currency {

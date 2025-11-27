@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { computePoolAddress, FeeAmount } from '@uniswap/v3-sdk';
 import { CHAIN_ID, POOL_FACTORY_CONTRACT_ADDRESS, QUOTER_CONTRACT_ADDRESS, SepoliaTokensAddresses, SWAP_ACCOUNT_ADDRESS, TOKENS_MAP, transferAbi } from './constants/config';
 import { BigNumber, ethers } from 'ethers';
@@ -10,6 +10,7 @@ import GetQuoteControllerDto from './dto/getQuoteController.dto';
 import { QuoteConfig } from './model/currency-quote-config';
 import { QuoteResponseDto } from './dto/quoteResponse.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { FulfillQuoteDto, FulfillResponseDto } from './dto/fulfillQuote.dto';
 
 @Injectable()
 export class QuoteService {
@@ -17,6 +18,7 @@ export class QuoteService {
   constructor(
     @Inject('Provider') private readonly provider: ethers.providers.Provider,
     @Inject('QuoterContract') private readonly quoterContract: ethers.Contract,
+    @Inject('Wallet') private readonly wallet: ethers.Wallet,
     private readonly prisma: PrismaService,
   ) {}
   
@@ -25,7 +27,7 @@ export class QuoteService {
     const outputToken = TOKENS_MAP[params.receiveToken];
     const quoteConfig: QuoteConfig = {
       rpc: {
-        mainnet: process.env.MAINNET_RPC_URL || 'https://mainnet.infura.io/v3/92fcd00cfdbe4363b32a2306d9d3b70f',
+        mainnet: process.env.MAINNET_RPC_URL || '',
       },
       tokens: {
         in: inputToken,
@@ -159,5 +161,129 @@ export class QuoteService {
       token1,
       fee,
     }
+  }
+
+  async fulfillQuote(params: FulfillQuoteDto): Promise<FulfillResponseDto> {
+    const quote = await this.prisma.quote.findUnique({
+      where: { id: params.quoteId },
+      include: {
+        payToken: true,
+        receiveToken: true,
+      },
+    });
+
+    if (!quote || quote.status !== 'PENDING') {
+      throw new NotFoundException(`Nenhuma cotação com id ${params.quoteId} encontrada`);
+    }
+
+    const sepoliaProvider = new ethers.providers.JsonRpcProvider(
+      process.env.SEPOLIA_RPC_URL || ''
+    );
+
+    const tx = await sepoliaProvider.getTransaction(params.txHash);
+    if (!tx) {
+      throw new BadRequestException(`A transação ${params.txHash} não existe`);
+    }
+
+    const receipt = await sepoliaProvider.getTransactionReceipt(params.txHash);
+    if (!receipt) throw new BadRequestException(`Transação ${params.txHash} pendente`);
+
+    if (receipt.status !== 1) throw new BadRequestException(`A transação ${params.txHash} falhou`);
+
+
+    const tokenAddress = SepoliaTokensAddresses[quote.payToken.symbol].toLowerCase();
+    const isEthPayment = quote.payToken.symbol === 'ETH' || quote.payToken.symbol === 'WETH';
+    
+    if (isEthPayment) {
+      if (tx.to?.toLowerCase() !== SWAP_ACCOUNT_ADDRESS.toLowerCase()) {
+        throw new BadRequestException(`Destinho da transação não corresponde ao endereço esperado`);
+      }
+      
+      const expectedAmount = ethers.utils.parseEther(quote.payAmount);
+      if (tx.value.lt(expectedAmount)) {
+        throw new BadRequestException(`Valor da transação é menor que o esperado`);
+      }
+    } else {
+      if (tx.to?.toLowerCase() !== tokenAddress) {
+        throw new BadRequestException(`Token da transação não corresponde ao contrato esperado`);
+      }
+
+      const transferEventSignature = ethers.utils.id('Transfer(address,address,uint256)');
+      const transferLog = receipt.logs.find(
+        log => log.topics[0] === transferEventSignature && 
+               log.address.toLowerCase() === tokenAddress
+      );
+
+      if (!transferLog) {
+        throw new BadRequestException(`Sem log de transferência`);
+      }
+
+      const decodedLog = ethers.utils.defaultAbiCoder.decode(
+        ['uint256'],
+        transferLog.data
+      );
+      const toAddress = '0x' + transferLog.topics[2].slice(26);
+      const amount = decodedLog[0];
+
+      if (toAddress.toLowerCase() !== SWAP_ACCOUNT_ADDRESS.toLowerCase()) {
+        throw new BadRequestException(`Endereço de destino da transferência não corresponde ao esperado`);
+      }
+
+      const expectedAmount = ethers.utils.parseUnits(quote.payAmount, 6);
+      if (amount.lt(expectedAmount)) {
+        throw new BadRequestException(`Valor da transação é menor que o esperado`);
+      }
+    }
+
+    let payTxHash: string;
+    try {
+      const sepoliaWallet = this.wallet.connect(sepoliaProvider);
+      const receiveTokenAddress = SepoliaTokensAddresses[quote.receiveToken.symbol];
+      console.log('receiveTokenAddress', receiveTokenAddress);
+      const receiveAmount = quote.receiveAmount;
+      
+      const payerAddress = tx.from;
+
+      if (quote.receiveToken.symbol === 'ETH' || quote.receiveToken.symbol === 'WETH') {
+        const payoutTx = await sepoliaWallet.sendTransaction({
+          to: payerAddress,
+          value: ethers.utils.parseEther(receiveAmount),
+        });
+        await payoutTx.wait();
+        payTxHash = payoutTx.hash;
+      } else {
+        const tokenContract = new ethers.Contract(
+          receiveTokenAddress,
+          transferAbi,
+          sepoliaWallet
+        );
+        
+        const decimals = quote.receiveToken.symbol === 'USDC' ? 6 : 18;
+        const payoutTx = await tokenContract.transfer(
+          payerAddress,
+          ethers.utils.parseUnits(receiveAmount, decimals)
+        );
+        await payoutTx.wait();
+        payTxHash = payoutTx.hash;
+      }
+
+      // await this.prisma.quote.update({
+      //   where: { id: params.quoteId },
+      //   data: { status: 'FULFILLED' },
+      // });
+    } catch (error) {
+      throw new BadRequestException(`Falha ao executar pagamento: ${error.message}`);
+    }
+
+    return {
+      status: 'fulfilled',
+      quoteId: params.quoteId,
+      payTxHash: payTxHash,
+      payout: {
+        token: quote.receiveToken.symbol,
+        amount: quote.receiveAmount,
+        status: 'sent',
+      },
+    };
   }
 }

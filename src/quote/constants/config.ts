@@ -5,7 +5,7 @@ export const POOL_FACTORY_CONTRACT_ADDRESS =
 export const QUOTER_CONTRACT_ADDRESS =
   '0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6'
 
-export const SWAP_ACCOUNT_ADDRESS = "0x4cf7c05655cb6d2d9ad80c11849364ad9e8d95eb"
+export const SWAP_ACCOUNT_ADDRESS = "0x4899561771600ba4a00430f5b0d5aef3cf82df36"
 
 export const transferAbi = [
   "function transfer(address to, uint256 amount) returns (bool)"
@@ -43,7 +43,7 @@ export const TOKENS_MAP: { [key: string]: Token } = {
 
 export const SepoliaTokensAddresses: { [key: string]: string } = {
   'WETH': '0xdd13E55209Fd76AfE204dBda4007C227904f0A81', // WETH Sepolia
-  'USDC': '0x07865c6E87B9F70255377e024ace6630C1Eaa37F', // USDC Sepolia
+  'USDC': '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238', // USDC Sepolia
   'WBTC': '0x171e51AE433924B1A8c9C970E137BE3a484005eF', // WBTC Sepolia
 }
 

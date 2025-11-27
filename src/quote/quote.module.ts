@@ -26,7 +26,17 @@ import { ethers } from 'ethers';
         )
       },
       inject: ['Provider'],
-    }
+    },
+    {
+      provide: 'Wallet',
+      useFactory: () => {
+        const privateKey = process.env.SWAP_ACCOUNT_PRIVATE_KEY;
+        if (!privateKey) {
+          throw new Error('SWAP_ACCOUNT_PRIVATE_KEY environment variable is required');
+        }
+        return new ethers.Wallet(privateKey);
+      },
+    },
   ],
 })
 export class QuoteModule {}

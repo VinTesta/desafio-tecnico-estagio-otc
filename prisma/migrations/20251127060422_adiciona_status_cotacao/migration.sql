@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "Quote" ADD COLUMN     "status" TEXT NOT NULL DEFAULT 'PENDING';
