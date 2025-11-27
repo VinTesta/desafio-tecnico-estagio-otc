@@ -84,7 +84,7 @@ Este projeto implementa um **bot de OTC (Over-The-Counter)** que:
 
 ---
 
-## 🛠 Tecnologias e Decisões de Design
+## Tecnologias e Decisões de Design
 
 | Tecnologia | Justificativa |
 |------------|---------------|
@@ -139,7 +139,7 @@ src/
 |-------|-------------------|----------|
 | WETH | `0xdd13E55209Fd76AfE204dBda4007C227904f0A81` | 18 |
 | USDC | `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238` | 6 |
-| WBTC | `0x171e51AE433924B1A8c9C970E137BE3a484005eF` | 8 |
+| WBTC | `0x087c5ad514D1784a21721656847C9A2c12C3e6DE` | 8 |
 
 > **Nota:** O WBTC na Sepolia foi deployado manualmente como um ERC-20 para fins de teste, já que não foi encontrado um equivalente oficial.
 
@@ -218,6 +218,8 @@ SEPOLIA_RPC_URL=https://sepolia.infura.io/v3/SEU_PROJECT_ID
 SWAP_ACCOUNT_PRIVATE_KEY=sua_chave_privada_aqui
 ```
 
+**OBS:** A conta de swap deve possuir saldo suficiente em Sepolia para cobrir os pagamentos.
+
 ### 4. Inicie o banco de dados
 
 ```bash
@@ -229,6 +231,9 @@ docker-compose up -d
 ```bash
 npx prisma migrate deploy
 ```
+
+### 6. Os tokens e contratos estão pré-configurados no código fonte.
+Você pode alterar os endereços dos tokens no arquivo `src/quote/constants/config.ts` se necessário.
 
 ---
 
@@ -365,7 +370,7 @@ Três swaps foram executados com sucesso na testnet Sepolia:
 - **TxHash:** [`0xf86a649c8a4cb1994218895b6281c5da0b8a467f45291d2312740f649e956aef`](https://sepolia.etherscan.io/tx/0xf86a649c8a4cb1994218895b6281c5da0b8a467f45291d2312740f649e956aef)
 
 ### WBTC → ETH
-- **TxHash:** [`0x1b7271c4ea7109c190e1866d3d75a80d3b28c928fe523f5206b330685e703270`](https://sepolia.etherscan.io/tx/0x1b7271c4ea7109c190e1866d3d75a80d3b28c928fe523f5206b330685e703270)
+- **TxHash:** [`0x0fc8d7604106396a2dc930781f43059ac0eea6aa2793841359153f675db8d2cf`](https://sepolia.etherscan.io/tx/0x0fc8d7604106396a2dc930781f43059ac0eea6aa2793841359153f675db8d2cf)
 
 ---
 
@@ -386,6 +391,38 @@ Três swaps foram executados com sucesso na testnet Sepolia:
 
 **Solução:** Implementada decodificação dos logs de evento `Transfer(address,address,uint256)` para extrair destinatário e valor.
 
+### 4. Faucets e supply
+**Problema:** Dificuldade em obter tokens suficientes na Sepolia para testes.
+
+**Solução:** Utilização de múltiplos faucets e deploy de tokens customizados quando necessário.
+
+USDC Faucet: https://faucet.circle.com/
+WBTC: Você pode myntar alguns para teste (0x087c5ad514D1784a21721656847C9A2c12C3e6DE)
+
+```solidity
+// SPDX-License-Identifier: MIT
+// Compatible with OpenZeppelin Contracts ^5.5.0
+pragma solidity ^0.8.27;
+
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+
+contract WrappedBTC is ERC20, Ownable, ERC20Permit {
+    constructor()
+        ERC20("Wrapped BTC", "WBTC")
+        Ownable(msg.sender)
+        ERC20Permit("Wrapped BTC")
+    {
+        _mint(msg.sender, 100000 * 10 ** decimals());
+    }
+
+    function mint(address to, uint256 amount) public {
+        _mint(to, amount);
+    }
+}
+
+```
 ---
 
 ## Referências
