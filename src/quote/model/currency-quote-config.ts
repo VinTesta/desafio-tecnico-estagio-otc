@@ -2,7 +2,6 @@ import { Token } from "@uniswap/sdk-core"
 
 export interface QuoteConfig {
   rpc: {
-    local: string
     mainnet: string
   }
   tokens: {
